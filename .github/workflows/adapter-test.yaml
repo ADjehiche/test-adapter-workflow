@@ -5,6 +5,16 @@ on:
       - main
     paths:
       - "adapters/*.ts"
+  workflow_dispatch:
+    inputs:
+      files:
+        description: 'Adapter files to test (e.g., "adapters/ethena.ts,adapters/karak.ts" or leave empty for all changed files)'
+        required: false
+        default: ""
+      address:
+        description: "Custom address to test (leave empty for default addresses)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -24,11 +34,50 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           IS_PULL_REQUEST: ${{ github.event.issue.pull_request != null }}
+          INPUT_FILES: ${{ github.event.inputs.files }}
         run: |
-          # Validate this is actually a pull request
-          if [ "$EVENT_NAME" = "pull_request" ]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            # Manual dispatch - use provided files or default to all adapters
+            if [ -n "$INPUT_FILES" ]; then
+              # User provided specific files
+              echo "Using manually specified files: $INPUT_FILES"
+              # Convert comma-separated to newline-separated
+              CHANGED_FILES=$(echo "$INPUT_FILES" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            else
+              # Default to all adapter files
+              echo "No specific files provided, testing all adapters"
+              CHANGED_FILES=$(ls adapters/*.ts 2>/dev/null || echo "")
+            fi
+          elif [ "$EVENT_NAME" = "pull_request" ]; then
             # Direct PR event - SHAs are already in environment variables
-            :
+            # Validate we have both SHAs
+            if [ -z "$BASE_SHA" ] || [ -z "$HEAD_SHA" ]; then
+              echo "Error: Could not determine base SHA ($BASE_SHA) or head SHA ($HEAD_SHA)"
+              exit 1
+            fi
+
+            # Validate SHA format (40 hex characters)
+            if [[ ! "$BASE_SHA" =~ ^[a-f0-9]{40}$ ]] || [[ ! "$HEAD_SHA" =~ ^[a-f0-9]{40}$ ]]; then
+              echo "Error: Invalid SHA format"
+              exit 1
+            fi
+
+            # Fetch the base and head refs
+            echo "Fetching base SHA: $BASE_SHA"
+            if ! git fetch origin "$BASE_SHA"; then
+              echo "Error: Failed to fetch base SHA $BASE_SHA"
+              exit 1
+            fi
+
+            echo "Fetching head SHA: $HEAD_SHA"  
+            if ! git fetch origin "$HEAD_SHA"; then
+              echo "Error: Failed to fetch head SHA $HEAD_SHA"
+              exit 1
+            fi
+
+            # Get changed files between base and head
+            echo "Comparing $BASE_SHA..$HEAD_SHA for adapter changes"
+            CHANGED_FILES=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep "^adapters/.*\.ts$")
           elif [ "$EVENT_NAME" = "issue_comment" ]; then
             # Issue comment event - verify this is on a PR, not a regular issue
             if [ "$IS_PULL_REQUEST" != "true" ]; then
@@ -40,46 +89,40 @@ jobs:
               echo "Error: Cannot get PR SHAs from issue comment event"
               exit 1
             fi
+            
+            # Validate SHA format (40 hex characters)
+            if [[ ! "$BASE_SHA" =~ ^[a-f0-9]{40}$ ]] || [[ ! "$HEAD_SHA" =~ ^[a-f0-9]{40}$ ]]; then
+              echo "Error: Invalid SHA format"
+              exit 1
+            fi
+
+            # Fetch the base and head refs
+            echo "Fetching base SHA: $BASE_SHA"
+            if ! git fetch origin "$BASE_SHA"; then
+              echo "Error: Failed to fetch base SHA $BASE_SHA"
+              exit 1
+            fi
+
+            echo "Fetching head SHA: $HEAD_SHA"  
+            if ! git fetch origin "$HEAD_SHA"; then
+              echo "Error: Failed to fetch head SHA $HEAD_SHA"
+              exit 1
+            fi
+
+            # Get changed files between base and head
+            echo "Comparing $BASE_SHA..$HEAD_SHA for adapter changes"
+            CHANGED_FILES=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep "^adapters/.*\.ts$")
           else
             echo "Unsupported event type: $EVENT_NAME"
             exit 1
           fi
 
-          # Validate we have both SHAs
-          if [ -z "$BASE_SHA" ] || [ -z "$HEAD_SHA" ]; then
-            echo "Error: Could not determine base SHA ($BASE_SHA) or head SHA ($HEAD_SHA)"
-            exit 1
-          fi
-
-          # Validate SHA format (40 hex characters)
-          if [[ ! "$BASE_SHA" =~ ^[a-f0-9]{40}$ ]] || [[ ! "$HEAD_SHA" =~ ^[a-f0-9]{40}$ ]]; then
-            echo "Error: Invalid SHA format"
-            exit 1
-          fi
-
-          # Fetch the base and head refs
-          echo "Fetching base SHA: $BASE_SHA"
-          if ! git fetch origin "$BASE_SHA"; then
-            echo "Error: Failed to fetch base SHA $BASE_SHA"
-            exit 1
-          fi
-
-          echo "Fetching head SHA: $HEAD_SHA"  
-          if ! git fetch origin "$HEAD_SHA"; then
-            echo "Error: Failed to fetch head SHA $HEAD_SHA"
-            exit 1
-          fi
-
-          # Get changed files between base and head - FAIL FAST if no adapter changes
-          echo "Comparing $BASE_SHA..$HEAD_SHA for adapter changes"
-          CHANGED_FILES=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep "^adapters/.*\.ts$")
-
           if [ -z "$CHANGED_FILES" ]; then
-            echo "No adapter files changed in this PR. Skipping tests."
+            echo "No adapter files found to test. Skipping tests."
             exit 0
           fi
 
-          echo "Found changed adapter files:"
+          echo "Found adapter files to test:"
           echo "$CHANGED_FILES"
 
           # Store the list of changed files (newline-separated)
@@ -94,9 +137,17 @@ jobs:
 
       - name: Set test address
         id: parse
+        env:
+          INPUT_ADDRESS: ${{ github.event.inputs.address }}
         run: |
-          # Use default address for testing
-          ADDRESS="0x69155e7ca2e688ccdc247f6c4ddf374b3ae77bd6"
+          # Use custom address if provided, otherwise default
+          if [ -n "$INPUT_ADDRESS" ] && [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ADDRESS="$INPUT_ADDRESS"
+            echo "Using custom address from workflow dispatch"
+          else
+            ADDRESS="0x69155e7ca2e688ccdc247f6c4ddf374b3ae77bd6"
+            echo "Using default address"
+          fi
 
           # Mask the address to prevent it from appearing in logs
           echo "::add-mask::$ADDRESS"
@@ -252,7 +303,13 @@ jobs:
 
             ---
 
-            **Need to test with a different address?** Reply to this comment with the address you'd like to test, and I can help you run it manually.`;
+            **Need to test with a different address or specific files?** 
+
+            Go to the [Actions tab](https://github.com/${{ github.repository }}/actions/workflows/adapter-test.yaml) and click "Run workflow" to manually test with:
+            - Custom address (leave empty for default)
+            - Specific adapter files (leave empty for all changed files)
+
+            This is much more convenient than replying to comments!`;
 
             github.rest.issues.createComment({
               issue_number: context.issue.number,
