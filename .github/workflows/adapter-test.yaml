@@ -45,24 +45,16 @@ jobs:
             exit 1
           fi
 
-          # Validate we have both SHAs - with fallback for local testing
+          # Validate we have both SHAs
           if [ -z "$BASE_SHA" ] || [ -z "$HEAD_SHA" ]; then
-            echo "Warning: Could not determine base SHA ($BASE_SHA) or head SHA ($HEAD_SHA)"
-            echo "Falling back to comparing HEAD~1..HEAD for local testing"
-            BASE_SHA=$(git rev-parse HEAD~1 2>/dev/null || echo "")
-            HEAD_SHA=$(git rev-parse HEAD 2>/dev/null || echo "")
-            
-            if [ -z "$BASE_SHA" ] || [ -z "$HEAD_SHA" ]; then
-              echo "Error: Cannot determine SHAs even with fallback"
-              exit 1
-            fi
+            echo "Error: Could not determine base SHA ($BASE_SHA) or head SHA ($HEAD_SHA)"
+            exit 1
           fi
 
-          # Validate SHA format (40 hex characters) - but allow local testing
+          # Validate SHA format (40 hex characters)
           if [[ ! "$BASE_SHA" =~ ^[a-f0-9]{40}$ ]] || [[ ! "$HEAD_SHA" =~ ^[a-f0-9]{40}$ ]]; then
-            echo "Warning: SHA format validation failed for BASE_SHA=$BASE_SHA HEAD_SHA=$HEAD_SHA"
-            echo "This might be expected for local testing with act"
-            # Don't exit - continue for local testing
+            echo "Error: Invalid SHA format"
+            exit 1
           fi
 
           # Fetch the base and head refs
@@ -100,33 +92,11 @@ jobs:
         with:
           deno-version: v2.x
 
-      - name: Parse test address
+      - name: Set test address
         id: parse
-        env:
-          COMMENT_BODY: ${{ github.event.comment.body }}
-          EVENT_NAME: ${{ github.event_name }}
         run: |
-          # Default address for PR events
-          DEFAULT_ADDRESS="0x69155e7ca2e688ccdc247f6c4ddf374b3ae77bd6"
-
-          # Check if this is a comment event
-          if [ "$EVENT_NAME" = "issue_comment" ]; then
-            # Parse /test command more robustly - match the full pattern first
-            if echo "$COMMENT_BODY" | grep -q "^/test\s\+0x[a-fA-F0-9]\{40\}"; then
-              # Extract just the address part after validation
-              ADDRESS=$(echo "$COMMENT_BODY" | sed -n 's|^/test\s\+\(0x[a-fA-F0-9]\{40\}\).*|\1|p')
-            else
-              echo "Comment does not contain valid /test <address> command"
-              exit 0
-            fi
-            
-            if [ -z "$ADDRESS" ]; then
-              echo "Failed to parse address from comment"
-              exit 0
-            fi
-          else
-            ADDRESS="$DEFAULT_ADDRESS"
-          fi
+          # Use default address for testing
+          ADDRESS="0x69155e7ca2e688ccdc247f6c4ddf374b3ae77bd6"
 
           # Mask the address to prevent it from appearing in logs
           echo "::add-mask::$ADDRESS"
@@ -234,7 +204,6 @@ jobs:
           fi
 
       - name: Comment PR with results
-        if: github.actor != 'nektos/act'
         uses: actions/github-script@v7
         env:
           OVERALL_EXIT_CODE: ${{ steps.test.outputs.exit_code }}
@@ -283,9 +252,7 @@ jobs:
 
             ---
 
-            **Want to test another address?** 
-
-            Comment on this PR with: \`/test <address>\` to run the adapter test with a different address.`;
+            **Need to test with a different address?** Reply to this comment with the address you'd like to test, and I can help you run it manually.`;
 
             github.rest.issues.createComment({
               issue_number: context.issue.number,
