@@ -164,7 +164,7 @@ jobs:
           # Clear output files
           > test_output.txt
 
-          # Process each changed adapter file
+            # Process each changed adapter file
           file_count=0
           while IFS= read -r CHANGED_FILE; do
             [ -z "$CHANGED_FILE" ] && continue
@@ -177,18 +177,21 @@ jobs:
             fi
             
             file_count=$((file_count + 1))
-            echo "========================================" >> test_output.txt
-            echo "TESTING ADAPTER: $CHANGED_FILE" >> test_output.txt
-            echo "========================================" >> test_output.txt
+            echo "## 📁 Testing: $CHANGED_FILE" >> test_output.txt
+            echo "" >> test_output.txt
             
             # Test 1: Address likely to have points
-            echo "=== Test 1: Address with points ===" >> test_output.txt
-            echo "Testing $CHANGED_FILE with address: $POINTS_ADDRESS"
+            echo "### 🟢 Test 1: Address with Points" >> test_output.txt
+            echo "**Address:** \`$POINTS_ADDRESS\`" >> test_output.txt
+            echo "" >> test_output.txt
+            echo "\`\`\`" >> test_output.txt
             if deno run -A test.ts "$CHANGED_FILE" "$POINTS_ADDRESS" >> test_output.txt 2>&1; then
-              echo "✅ Points test PASSED for $CHANGED_FILE" >> test_output.txt
+              echo "\`\`\`" >> test_output.txt
+              echo "**Result:** ✅ PASSED" >> test_output.txt
               points_result=0
             else
-              echo "❌ Points test FAILED for $CHANGED_FILE" >> test_output.txt
+              echo "\`\`\`" >> test_output.txt
+              echo "**Result:** ❌ FAILED" >> test_output.txt
               points_result=1
               overall_exit_code=1
             fi
@@ -196,22 +199,26 @@ jobs:
             echo "" >> test_output.txt
             
             # Test 2: Address likely to have no points
-            echo "=== Test 2: Address with no points ===" >> test_output.txt
-            echo "Testing $CHANGED_FILE with address: $NO_POINTS_ADDRESS"
+            echo "### 🔴 Test 2: Address with No Points" >> test_output.txt
+            echo "**Address:** \`$NO_POINTS_ADDRESS\`" >> test_output.txt
+            echo "" >> test_output.txt
+            echo "\`\`\`" >> test_output.txt
             if deno run -A test.ts "$CHANGED_FILE" "$NO_POINTS_ADDRESS" >> test_output.txt 2>&1; then
-              echo "✅ No-points test PASSED for $CHANGED_FILE" >> test_output.txt
+              echo "\`\`\`" >> test_output.txt
+              echo "**Result:** ✅ PASSED" >> test_output.txt
               no_points_result=0
             else
-              echo "❌ No-points test FAILED for $CHANGED_FILE" >> test_output.txt
+              echo "\`\`\`" >> test_output.txt
+              echo "**Result:** ❌ FAILED" >> test_output.txt
               no_points_result=1
               overall_exit_code=1
             fi
             
             echo "" >> test_output.txt
+            echo "---" >> test_output.txt
+            echo "" >> test_output.txt
             
-          done <<< "$CHANGED_FILES"
-
-          echo "Tested $file_count adapter file(s)"
+          done <<< "$CHANGED_FILES"          echo "Tested $file_count adapter file(s)"
           echo "file_count=$file_count" >> $GITHUB_OUTPUT
           echo "exit_code=$overall_exit_code" >> $GITHUB_OUTPUT
         continue-on-error: true
@@ -272,14 +279,7 @@ jobs:
 
             **Tested ${fileCount} Adapter File(s):** ${fileList}
 
-            **Test Addresses:**
-            - **With Points:** \`${pointsAddress}\`
-            - **No Points:** \`${noPointsAddress}\`
-
-            ### Test Output:
-            \`\`\`
             ${testOutput}
-            \`\`\`
 
             ---
 
